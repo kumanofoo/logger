@@ -1,34 +1,96 @@
 #include <SD.h>
 #include <Wire.h>
+#include <LiquidCrystal.h>
 #include <stdio.h>
+
+// Akizuki LCD
+// 1:VDD
+// 2:VSS
+// 3:VO contrast
+// 4:RS
+// 5:R/W
+// 6:E
+// 7-14:DB0-DB17
+
+// LiquidCrystal(rs, enable, d4, d5, d6, d7)
+// LiquidCrystal(rs, rw, enable, d4, d5, d6, d7)
+// LiquidCrystal(rs, enable, d0, d1, d2, d3, d4, d5, d6, d7)
+// LiquidCrystal(rs, rw, enable, d0, d1, d2, d3, d4, d5, d6, d7) 
+LiquidCrystal lcd(7,6,5,4,3,2);
+
 
 const int chipSelect = 10;
 
+//=====================================
+// initialize
+//=====================================
 void setup() {
   byte tm[7];
   char date[20];
   
-  // put your setup code here, to run once:
+  // initialize LCD
+  lcd.begin(16,2);
+  lcd.setCursor(0,0);
+  
+  // initialize serial
   Serial.begin(9600);
   while (!Serial);
 
+  // initialize RTC
   rtc();
   getRTC(tm);
   getCTime(date, tm);
   Serial.println(date);
-  
-  Serial.print(F("Initializing SD card..."));
+  lcd.print(date);
+  lcd.setCursor(0,1);
 
+  // initialize SD card
+  Serial.print(F("Initializing SD card..."));
+  lcd.print(F("SD card..."));
   pinMode(10, OUTPUT);
 
   if (!SD.begin(chipSelect)) {
     Serial.println(F("Card failed, or no present"));
-    while (1);
+    lcd.print(F("failed!"));
+    while (1) {
+      lcd.noDisplay();
+      delay(500);
+      lcd.display();
+      delay(500);
+    }
   }
   SdFile::dateTimeCallback( &dateTime );
   Serial.println(F("ok."));
+  lcd.print(F("ok."));
+  while(1);
 }
 
+//============================================
+// main loop
+//============================================
+void loop() {
+  byte tm[7];
+  char date[20];
+  char date2[20];
+  char filename[24];
+  for (int i = 0; i < 6; i++) {
+    getRTC(tm);
+    getCTime(date, tm);
+    getCTime2(date2, tm);
+    sprintf(filename, "%s.txt", date2);
+    Serial.print(date);
+    Serial.print(':');
+    Serial.println(filename);
+    getData(10, filename);     
+  }
+  Serial.println("done!");
+  while (1);
+}
+
+
+//============================================
+// getCTime()
+//============================================
 void getCTime(char c[20], byte tm[7])
 {
   char t[7];
@@ -45,25 +107,6 @@ void getCTime2(char c[20], byte tm[7])
     t[i] = bcd2bin(tm[i]);
   }
   sprintf(c, "%02d%02d%02d%02d", t[3], t[2], t[1], t[0]);  
-}
-
-void loop() {
-  byte tm[7];
-  char date[20];
-  char date2[20];
-  char filename[24];
-  for (int i = 0; i < 15; i++) {
-    getRTC(tm);
-    getCTime(date, tm);
-    getCTime2(date2, tm);
-    sprintf(filename, "%s.txt", date2);
-    Serial.print(date);
-    Serial.print(':');
-    Serial.println(filename);
-    getData(60*60, filename);     
-  }
-  Serial.println("done!");
-  while (1);
 }
 
 void getData(int n, char *filename)
@@ -103,6 +146,10 @@ unsigned int bin2bcd(unsigned int num)
   return ((num / 100) << 8) | (((num % 100) / 10) << 4) | (num % 10); 
 }
 
+
+//===============================================
+// RTC()
+//===============================================
 #define RTC_ADRS 0B1010001
 void rtc()
 {
