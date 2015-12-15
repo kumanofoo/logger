@@ -18,7 +18,11 @@
 // LiquidCrystal(rs, rw, enable, d0, d1, d2, d3, d4, d5, d6, d7) 
 LiquidCrystal lcd(7,6,5,4,3,2);
 
-
+int year = 15;
+int month = 12;
+int day = 15;
+int hour = 12;
+int minute = 00;
 const int chipSelect = 10;
 
 //=====================================
@@ -27,6 +31,9 @@ const int chipSelect = 10;
 void setup() {
   byte tm[7];
   char date[20];
+
+  //pinMode(8, INPUT);
+  //pinMode(9, INPUT);
   
   // initialize LCD
   lcd.begin(16,2);
@@ -62,7 +69,6 @@ void setup() {
   SdFile::dateTimeCallback( &dateTime );
   Serial.println(F("ok."));
   lcd.print(F("ok."));
-  while(1);
 }
 
 //============================================
@@ -73,6 +79,19 @@ void loop() {
   char date[20];
   char date2[20];
   char filename[24];
+
+  while (1) {
+    if (digitalRead(8) == 0) break;
+    getRTC(tm);
+    getCTime(date, tm);
+    lcd.home();
+    lcd.print(date);
+    delay(1000);
+  }
+  lcd.setCursor(0,1);
+  lcd.print(F("Logging...      "));
+  while (1);
+  
   for (int i = 0; i < 6; i++) {
     getRTC(tm);
     getCTime(date, tm);
@@ -87,6 +106,165 @@ void loop() {
   while (1);
 }
 
+//============================================
+// setTime()
+//============================================
+
+void setTime()
+{
+  char date[32];
+  int dt = 500;
+  int cnt = 5;
+
+  lcd.cursor();
+  sprintf(date, "%04d-%02d-%02d %02d:%02d", year+2000, month, day, hour, minute);
+  lcd.home();
+  lcd.print(date);
+
+  // year
+  dt = 500;
+  cnt = 5;
+  while (1) {
+    lcd.setCursor(3,0);
+    if (digitalRead(8) == 0) break;
+    if (digitalRead(9) == 0) {
+      year++;
+      lcd.setCursor(0,0);
+      lcd.print(year+2000);
+      lcd.setCursor(3,0);
+      delay(dt);
+      cnt--;
+      if (cnt == 0) dt = 100;
+    }
+    else {
+      cnt = 5;
+      dt = 500;
+    }
+  }
+  delay(150);
+  while (digitalRead(8) == 0);
+
+  // month
+  cnt = 5;
+  dt = 500;
+  while (1) {
+    lcd.setCursor(6,0);
+    if (digitalRead(8) == 0) break;
+    if (digitalRead(9) == 0) {
+      month++;
+      if (month == 13) month = 1;
+      lcd.setCursor(5,0);
+      if (month < 10) {
+        lcd.print(0);
+      }
+      lcd.print(month);
+      lcd.setCursor(6,0);
+      delay(dt);
+      cnt--;
+      if (cnt == 0) dt = 100;
+    }
+    else {
+      cnt = 5;
+      dt = 500;
+    }
+  }
+  delay(150);
+  while (digitalRead(8) == 0);
+
+  // day
+  cnt = 5;
+  dt = 500;
+  while (1) {
+    lcd.setCursor(9,0);
+    if (digitalRead(8) == 0) break;
+    if (digitalRead(9) == 0) {
+      day++;
+      if (month == 4 || month == 6 || month == 9 || month == 11) {
+        if (day == 31) day = 1;
+      }
+      else if (month == 2) {
+        int y = year+2000;
+        if ((y % 4) == 0 && (y % 100) != 0 && (y % 400) == 0) {
+          if (day == 30) day = 1; 
+        }
+        else {
+          if (day == 29) day = 1;
+        }
+      }
+      else {
+        if (day == 32) day = 1;
+      }
+      
+      lcd.setCursor(8,0);
+      if (day < 10) {
+        lcd.print(0);
+      }
+      lcd.print(day);
+      lcd.setCursor(9,0);
+      delay(dt);
+      cnt--;
+      if (cnt == 0) dt = 100;
+    }
+    else {
+      cnt = 5;
+      dt = 500;
+    }
+  }
+  delay(150);
+  while (digitalRead(8) == 0);
+
+  // hour
+  cnt = 5;
+  dt = 500;
+  while (1) {
+    lcd.setCursor(12,0);
+    if (digitalRead(8) == 0) break;
+    if (digitalRead(9) == 0) {
+      hour++;
+      if (hour == 24) hour = 0;
+      lcd.setCursor(11,0);
+      if (hour < 10) {
+        lcd.print(0);
+      }
+      lcd.print(hour);
+      lcd.setCursor(12,0);
+      delay(dt);
+      cnt--;
+      if (cnt == 0) dt = 100;
+    }
+    else {
+      cnt = 5;
+      dt = 500;
+    }
+  }
+  delay(150);
+  while (digitalRead(8) == 0);
+
+  // minute
+  cnt = 5;
+  dt = 500;
+  while (1) {
+    lcd.setCursor(15,0);
+    if (digitalRead(8) == 0) break;
+    if (digitalRead(9) == 0) {
+      minute++;
+      if (minute == 60) minute = 0;
+      lcd.setCursor(14,0);
+      if (minute < 10) {
+        lcd.print(0);
+      }
+      lcd.print(minute);
+      lcd.setCursor(15,0);
+      delay(dt);
+      cnt--;
+      if (cnt == 0) dt = 100;
+    }
+    else {
+      cnt = 5;
+      dt = 500;
+    }
+  }
+}
 
 //============================================
 // getCTime()
@@ -100,6 +278,9 @@ void getCTime(char c[20], byte tm[7])
   sprintf(c, "%04d-%02d-%02dT%02d:%02d:%02d", t[6]+2000, t[5], t[3], t[2], t[1], t[0]);  
 }
 
+//============================================
+// getCTime2()
+//============================================
 void getCTime2(char c[20], byte tm[7])
 {
   char t[7];
@@ -109,6 +290,9 @@ void getCTime2(char c[20], byte tm[7])
   sprintf(c, "%02d%02d%02d%02d", t[3], t[2], t[1], t[0]);  
 }
 
+//============================================
+// getData()
+//============================================
 void getData(int n, char *filename)
 {
   long num = 0;
@@ -166,19 +350,19 @@ void rtc()
     if (ans == 2) {
       reg1 = Wire.read(); // receive Reg 01H
       reg2 = Wire.read(); // receive Reg 02H
-      //if (reg2 & 0x80*0) {  // if VL bit is on, initialize date
-      if (1) {
+      if (reg2 & 0x80) {  // if VL bit is on, initialize date
+        setTime();
         Wire.beginTransmission(RTC_ADRS);
         Wire.write(0x00); // address 00h
         Wire.write(0x20); // control1: TEST=0, STOP=1
         Wire.write(0x11); // control2: disable interrupt
         Wire.write((byte)bin2bcd(00));  // seconds
-        Wire.write((byte)bin2bcd(38));  // minutes
-        Wire.write((byte)bin2bcd(17));  // hours
-        Wire.write((byte)bin2bcd(7));  // days
+        Wire.write((byte)bin2bcd(minute));  // minutes
+        Wire.write((byte)bin2bcd(hour));  // hours
+        Wire.write((byte)bin2bcd(day));  // days
         Wire.write((byte)bin2bcd(1));  // week days
-        Wire.write((byte)bin2bcd(12));  // months
-        Wire.write((byte)bin2bcd(15));  // years
+        Wire.write((byte)bin2bcd(month));  // months
+        Wire.write((byte)bin2bcd(year));  // years
         Wire.write(0x80); // alarm minute
         Wire.write(0x80); // alarm hour
         Wire.write(0x80); // alarm hour
