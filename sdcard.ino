@@ -1,7 +1,11 @@
 #include <SD.h>
 #include <Wire.h>
 #include <LiquidCrystal.h>
+#include <avr/pgmspace.h>
 #include <stdio.h>
+
+#define TIME_PAR_FILE 60 // minutes
+#define CTIME_STRING_BUFFER 20
 
 // Akizuki LCD
 // 1:VDD
@@ -11,12 +15,20 @@
 // 5:R/W
 // 6:E
 // 7-14:DB0-DB17
-
+//
 // LiquidCrystal(rs, enable, d4, d5, d6, d7)
 // LiquidCrystal(rs, rw, enable, d4, d5, d6, d7)
 // LiquidCrystal(rs, enable, d0, d1, d2, d3, d4, d5, d6, d7)
-// LiquidCrystal(rs, rw, enable, d0, d1, d2, d3, d4, d5, d6, d7) 
+// LiquidCrystal(rs, rw, enable, d0, d1, d2, d3, d4, d5, d6, d7)
 LiquidCrystal lcd(7,6,5,4,3,2);
+
+// Switch
+int swSet = 8;
+int swSelect = 9;
+
+// Sensor
+int sensor0 = 0;
+int sensor1 = 1;
 
 int year = 15;
 int month = 12;
@@ -32,19 +44,24 @@ void setup() {
   byte tm[7];
   char date[20];
 
-  //pinMode(8, INPUT);
-  //pinMode(9, INPUT);
-  
+  pinMode(swSet, INPUT);
+  pinMode(swSelect, INPUT);
+
   // initialize LCD
   lcd.begin(16,2);
   lcd.setCursor(0,0);
-  
+
   // initialize serial
   Serial.begin(9600);
   while (!Serial);
 
   // initialize RTC
-  rtc();
+  Serial.print(F("Initializing RTC..."));
+  if (!rtc()) {
+    Serial.println(F("initialized RTC failed"));
+    fatalError("RTC failed!     ");
+  }
+  Serial.println(F("ok."));
   getRTC(tm);
   getCTime(date, tm);
   Serial.println(date);
@@ -53,22 +70,14 @@ void setup() {
 
   // initialize SD card
   Serial.print(F("Initializing SD card..."));
-  lcd.print(F("SD card..."));
   pinMode(10, OUTPUT);
 
   if (!SD.begin(chipSelect)) {
     Serial.println(F("Card failed, or no present"));
-    lcd.print(F("failed!"));
-    while (1) {
-      lcd.noDisplay();
-      delay(500);
-      lcd.display();
-      delay(500);
-    }
+    fatalError("SD card failed  ");
   }
   SdFile::dateTimeCallback( &dateTime );
   Serial.println(F("ok."));
-  lcd.print(F("ok."));
 }
 
 //============================================
@@ -80,19 +89,24 @@ void loop() {
   char date2[20];
   char filename[24];
 
-  while (1) {
-    if (digitalRead(8) == 0) break;
+  lcd.setCursor(0,1);
+  lcd.print(F("push [red]      "));
+
+  while (digitalRead(swSet) == 0);
+  delay(500);
+  while (true) {
+    if (digitalRead(swSet) == 0) break;
     getRTC(tm);
     getCTime(date, tm);
     lcd.home();
     lcd.print(date);
-    delay(1000);
+    delay(500);
   }
+  delay(200);
   lcd.setCursor(0,1);
-  lcd.print(F("Logging...      "));
-  while (1);
-  
-  for (int i = 0; i < 6; i++) {
+  lcd.print(F("Now logging...      "));
+
+  while (true) {
     getRTC(tm);
     getCTime(date, tm);
     getCTime2(date2, tm);
@@ -100,16 +114,131 @@ void loop() {
     Serial.print(date);
     Serial.print(':');
     Serial.println(filename);
-    getData(10, filename);     
+    lcd.setCursor(0,1);
+    lcd.print(date);
+    int n = getData(TIME_PAR_FILE, filename);
+    if (n < 0) {
+      lcd.setCursor(0,1);
+      fatalError("file failed     ");
+    }
+    if (n == 0) {
+      Serial.println(F("stop"));
+      lcd.setCursor(0,1);
+      break;
+    }
   }
-  Serial.println("done!");
-  while (1);
 }
+
+//============================================
+// abortLogging()
+//============================================
+#define ABORT_LIMIT 100
+int abortDelay = ABORT_LIMIT;
+bool abortLogging()
+{
+  if (digitalRead(swSet) == 0) {
+    abortDelay--;
+    if (abortDelay == 0) {
+      abortDelay = ABORT_LIMIT;
+      return true;
+    }
+  }
+  else {
+    abortDelay = ABORT_LIMIT;
+  }
+
+  return false;
+}
+
+//============================================
+// getData()
+//============================================
+int getData(int min_par_file, char *filename)
+{
+  int j;
+  long num = 0;
+  byte tm[7];
+  char date[20];
+  int pre_min = 70;
+  byte sec = 0;
+  
+  File dataFile = SD.open(filename, FILE_WRITE);
+  if (dataFile) {
+    while (true) {
+      int s0 = analogRead(sensor0);
+      int s1 = analogRead(sensor1);
+      getRTC(tm);
+      int cur_min = bcd2bin(tm[1]);
+      if (pre_min == 70) {
+        pre_min = cur_min;
+        sec = tm[0];
+      }
+      if (cur_min != pre_min && sec == tm[0]) {
+        pre_min = cur_min;
+        min_par_file--;
+        if (min_par_file == 0) break;
+      }
+      getCTime(date, tm);
+      dataFile.print(date);
+      dataFile.print(",");
+      dataFile.print(num);
+      num++;
+      dataFile.print(",");
+      dataFile.print(s0);
+      dataFile.print(",");
+      dataFile.println(s1);
+      //delay(7);
+      if (abortLogging()) {
+        dataFile.close();
+        return 0;
+      }
+    }
+    dataFile.close();
+  }
+  else {
+    Serial.print(F("error opening "));
+    Serial.println(filename);
+    fatalError("can't open file ");
+    return -1;
+  }
+  return 1;
+}
+
+//============================================
+// getSerialNumber()
+//============================================
+void getSerialNumber(char sn[32])
+{
+  static int cur = 0;
+  static int pre = 1;
+  static byte tm[2][7] = {
+    {0xff, 0xff, 0xff, 0x0ff, 0xff, 0xff, 0xff},
+    {0xff, 0xff, 0xff, 0x0ff, 0xff, 0xff, 0xff}
+  };
+  static char date[20];
+  static int num = 0;
+  int i;
+  
+  getRTC(tm[cur]);
+  for (i = 0; i < 7; i++) {
+    if (tm[cur][i] != tm[pre][i]) break;
+  }
+  if (i != 7) {
+    getCTime(date, tm[cur]);
+    num = 0;
+  }
+
+  sprintf(sn, "%s.%03d", date, num);
+  num++;
+  int tmp = cur;
+  cur = pre;
+  pre = tmp;
+}
+
 
 //============================================
 // setTime()
 //============================================
-
 void setTime()
 {
   char date[32];
@@ -124,10 +253,10 @@ void setTime()
   // year
   dt = 500;
   cnt = 5;
-  while (1) {
+  while (true) {
     lcd.setCursor(3,0);
-    if (digitalRead(8) == 0) break;
-    if (digitalRead(9) == 0) {
+    if (digitalRead(swSet) == 0) break;
+    if (digitalRead(swSelect) == 0) {
       year++;
       lcd.setCursor(0,0);
       lcd.print(year+2000);
@@ -142,15 +271,15 @@ void setTime()
     }
   }
   delay(150);
-  while (digitalRead(8) == 0);
+  while (digitalRead(swSet) == 0);
 
   // month
   cnt = 5;
   dt = 500;
-  while (1) {
+  while (true) {
     lcd.setCursor(6,0);
-    if (digitalRead(8) == 0) break;
-    if (digitalRead(9) == 0) {
+    if (digitalRead(swSet) == 0) break;
+    if (digitalRead(swSelect) == 0) {
       month++;
       if (month == 13) month = 1;
       lcd.setCursor(5,0);
@@ -169,15 +298,15 @@ void setTime()
     }
   }
   delay(150);
-  while (digitalRead(8) == 0);
+  while (digitalRead(swSet) == 0);
 
   // day
   cnt = 5;
   dt = 500;
-  while (1) {
+  while (true) {
     lcd.setCursor(9,0);
-    if (digitalRead(8) == 0) break;
-    if (digitalRead(9) == 0) {
+    if (digitalRead(swSet) == 0) break;
+    if (digitalRead(swSelect) == 0) {
       day++;
       if (month == 4 || month == 6 || month == 9 || month == 11) {
         if (day == 31) day = 1;
@@ -185,7 +314,7 @@ void setTime()
       else if (month == 2) {
         int y = year+2000;
         if ((y % 4) == 0 && (y % 100) != 0 && (y % 400) == 0) {
-          if (day == 30) day = 1; 
+          if (day == 30) day = 1;
         }
         else {
           if (day == 29) day = 1;
@@ -194,7 +323,7 @@ void setTime()
       else {
         if (day == 32) day = 1;
       }
-      
+
       lcd.setCursor(8,0);
       if (day < 10) {
         lcd.print(0);
@@ -211,15 +340,15 @@ void setTime()
     }
   }
   delay(150);
-  while (digitalRead(8) == 0);
+  while (digitalRead(swSet) == 0);
 
   // hour
   cnt = 5;
   dt = 500;
   while (1) {
     lcd.setCursor(12,0);
-    if (digitalRead(8) == 0) break;
-    if (digitalRead(9) == 0) {
+    if (digitalRead(swSet) == 0) break;
+    if (digitalRead(swSelect) == 0) {
       hour++;
       if (hour == 24) hour = 0;
       lcd.setCursor(11,0);
@@ -238,15 +367,15 @@ void setTime()
     }
   }
   delay(150);
-  while (digitalRead(8) == 0);
+  while (digitalRead(swSet) == 0);
 
   // minute
   cnt = 5;
   dt = 500;
   while (1) {
     lcd.setCursor(15,0);
-    if (digitalRead(8) == 0) break;
-    if (digitalRead(9) == 0) {
+    if (digitalRead(swSet) == 0) break;
+    if (digitalRead(swSelect) == 0) {
       minute++;
       if (minute == 60) minute = 0;
       lcd.setCursor(14,0);
@@ -264,7 +393,9 @@ void setTime()
       dt = 500;
     }
   }
+  lcd.noCursor();
 }
+
 
 //============================================
 // getCTime()
@@ -275,7 +406,7 @@ void getCTime(char c[20], byte tm[7])
   for (int i = 0; i < 7; i++) {
     t[i] = bcd2bin(tm[i]);
   }
-  sprintf(c, "%04d-%02d-%02dT%02d:%02d:%02d", t[6]+2000, t[5], t[3], t[2], t[1], t[0]);  
+  sprintf(c, "%04d-%02d-%02dT%02d:%02d:%02d", t[6]+2000, t[5], t[3], t[2], t[1], t[0]);
 }
 
 //============================================
@@ -287,63 +418,38 @@ void getCTime2(char c[20], byte tm[7])
   for (int i = 0; i < 7; i++) {
     t[i] = bcd2bin(tm[i]);
   }
-  sprintf(c, "%02d%02d%02d%02d", t[3], t[2], t[1], t[0]);  
+  sprintf(c, "%02d%02d%02d%02d", t[3], t[2], t[1], t[0]);
 }
 
-//============================================
-// getData()
-//============================================
-void getData(int n, char *filename)
-{
-  long num = 0;
-  File dataFile = SD.open(filename, FILE_WRITE);
-  if (dataFile) {
-    for (int j = 0; j < n; j++) {
-      // about 1 sec loop
-      for (int i = 0; i < 100 ; i++) {
-        int value1 = analogRead(0);
-        int value2 = analogRead(1);
-        dataFile.print(num);
-        num++;
-        dataFile.print(",");
-        dataFile.print(value1);
-        dataFile.print(",");
-        dataFile.println(value2);
-        delay(9);
-      }
-    }
-    dataFile.close();
-  }
-  else {
-    Serial.print(F("error opening "));
-    Serial.println(filename);
-  }
-}
-
+//================================================
+// bcd2bin()
+//================================================
 unsigned int bcd2bin(byte dt)
 {
   return ((dt >> 4) * 10) + (dt & 0x0f);
 }
 
+//================================================
+// bin2bcd()
+//================================================
 unsigned int bin2bcd(unsigned int num)
 {
-  return ((num / 100) << 8) | (((num % 100) / 10) << 4) | (num % 10); 
+  return ((num / 100) << 8) | (((num % 100) / 10) << 4) | (num % 10);
 }
 
-
 //===============================================
-// RTC()
+// rtc()
 //===============================================
 #define RTC_ADRS 0B1010001
-void rtc()
+bool rtc()
 {
   byte reg1, reg2;
-  
+
   Wire.begin();
   delay(1000);
   Wire.beginTransmission(RTC_ADRS);
   Wire.write(0x01); // register address 01h
-  
+
   int ans = Wire.endTransmission();
   if (ans == 0) {
     ans = Wire.requestFrom(RTC_ADRS, 2);
@@ -380,14 +486,17 @@ void rtc()
           delay(1000);
         }
         else {
-          Serial.println("initialized RTC failed");
-          while (1);
+          return false;
         }
       }
     }
   }
+  return true;
 }
 
+//============================================
+// getRTC()
+//============================================
 void getRTC(byte tm[7])
 {
   Wire.beginTransmission(RTC_ADRS);
@@ -407,21 +516,46 @@ void getRTC(byte tm[7])
   }
 }
 
+//============================================
+// dateTime()
+// for SD card time stamp
+//============================================
 void dateTime(uint16_t* date, uint16_t* time)
 {
   uint8_t t[7];
   uint16_t year;
   uint8_t month, day, hour, minute, second;
   byte tm[7];
-  
+
   getRTC(tm);
   for (int i = 0; i < 7; i++) {
     t[i] = (uint8_t)bcd2bin(tm[i]);
   }
   year = t[6] + 2000;
-  
+
   *date = FAT_DATE(year, t[5], t[3]);
   *time = FAT_TIME(t[2], t[1], t[0]);
 }
 
+//============================================
+// fatalError()
+//============================================
+void fatalError(const char *message)
+{
+  byte tm[7];
+  char date[32];
 
+  getRTC(tm);
+  getCTime(date, tm);
+  
+  lcd.setCursor(0,0);
+  lcd.print(date);
+  lcd.setCursor(0,1);
+  lcd.print(message);
+  while (true) {
+    lcd.noDisplay();
+    delay(500);
+    lcd.display();
+    delay(500);
+  }
+}
