@@ -88,24 +88,29 @@ void loop() {
   char date[20];
   char date2[20];
   char filename[24];
+  long i;
 
-  lcd.setCursor(0,1);
-  lcd.print(F("push [red]      "));
-
-  while (digitalRead(swSet) == 0);
-  delay(500);
   while (true) {
-    if (digitalRead(swSet) == 0) break;
     getRTC(tm);
     getCTime(date, tm);
-    lcd.home();
+    lcd.setCursor(0,0);
     lcd.print(date);
-    delay(500);
+    lcd.setCursor(0,1);
+    float s0 = (float)analogRead(sensor0)*5.0/1023.0;
+    analogRead(sensor1);
+    float s1 = (float)analogRead(sensor1)*5.0/1023.0;
+    lcd.print(s0,2);
+    lcd.print(F(" "));
+    lcd.print(s1,2);
+    lcd.print(F("  [red]"));
+    for (i = 0; i < 400000; i++) {
+      if (digitalRead(swSet) == 0) break;
+    }
+    if (i != 400000) break;
   }
   delay(200);
-  lcd.setCursor(0,1);
-  lcd.print(F("Now logging...      "));
-
+  while (digitalRead(swSet) == 0);
+  
   while (true) {
     getRTC(tm);
     getCTime(date, tm);
@@ -124,6 +129,8 @@ void loop() {
     if (n == 0) {
       Serial.println(F("stop"));
       lcd.setCursor(0,1);
+      lcd.print(F("stop            "));
+      while (digitalRead(swSet) == 0);
       break;
     }
   }
@@ -132,7 +139,7 @@ void loop() {
 //============================================
 // abortLogging()
 //============================================
-#define ABORT_LIMIT 100
+#define ABORT_LIMIT 200
 int abortDelay = ABORT_LIMIT;
 bool abortLogging()
 {
