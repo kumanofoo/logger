@@ -4,6 +4,9 @@
 #include <RTClib.h>
 #include <SD.h>
 
+#define VER_MAJ 0x01
+#define VER_MIN 0x00
+
 #define TIME_PAR_FILE 60 // minutes
 #define CTIME_STRING_BUFFER 20
 
@@ -80,6 +83,11 @@ void setup() {
   SdFile::dateTimeCallback( &dateTime );
   Serial.println(F("ok."));
 
+  sprintf(date, "Version %x.%02x", VER_MAJ, VER_MIN);
+  lcd.setCursor(0,0);
+  lcd.print(date);
+  delay(1000);
+  
   int yes;
   int no;
   while (true) {
@@ -145,10 +153,11 @@ void loop() {
     lcd.print(F(" "));
     lcd.print(s1,2);
     lcd.print(F("  [red]"));
-    for (i = 0; i < 400000; i++) {
+    long wait_time = 100000;
+    for (i = 0; i < wait_time; i++) {
       if (digitalRead(swSet) == 0) break;
     }
-    if (i != 400000) break;
+    if (i != wait_time) break;
   }
   delay(200);
   while (digitalRead(swSet) == 0);
